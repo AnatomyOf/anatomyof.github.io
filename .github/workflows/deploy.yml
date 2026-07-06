@@ -66,3 +66,19 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deploy
         uses: actions/deploy-pages@v4
+
+      # The org root Pages backend occasionally reports "success" without
+      # promoting the new artifact. Verify the freshly built asset is actually
+      # served at the origin; if not, fail so the run can be re-triggered.
+      - name: Verify deployment served the new build
+        run: |
+          asset=$(grep -oE 'assets/index-[A-Za-z0-9_-]+\.js' app/dist/index.html | head -1)
+          echo "Expecting live asset: $asset"
+          for attempt in $(seq 1 20); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "https://anatomyof.github.io/$asset")
+            echo "attempt $attempt: HTTP $code"
+            [ "$code" = "200" ] && echo "Live ✓" && exit 0
+            sleep 15
+          done
+          echo "::error::New build was not served at the origin after deploy."
+          exit 1
