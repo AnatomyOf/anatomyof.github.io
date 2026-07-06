@@ -64,35 +64,63 @@ jobs:
           path: app/dist
 
       # This org-root Pages backend fails ~half the time — sometimes loudly
-      # ("Deployment failed, try again later"), sometimes silently (reports
-      # success but never promotes the artifact). So we make up to three
-      # attempts and continue on error; the Verify step below is the real
-      # gate — it checks the freshly built asset is actually served.
-      - name: Deploy to GitHub Pages (attempt 1)
-        id: deploy1
-        uses: actions/deploy-pages@v4
-        continue-on-error: true
+      # ("Deployment failed, try again later"), and sometimes SILENTLY (the
+      # deploy step reports success but never promotes the artifact). So we
+      # interleave deploy attempts with a live-asset check: after each deploy,
+      # poll the origin for the freshly built asset, and only retry if it is
+      # still not served. This catches BOTH failure modes.
 
-      - name: Deploy to GitHub Pages (attempt 2)
-        id: deploy2
-        if: steps.deploy1.outcome == 'failure'
-        uses: actions/deploy-pages@v4
-        continue-on-error: true
-
-      - name: Deploy to GitHub Pages (attempt 3)
-        if: steps.deploy1.outcome == 'failure' && steps.deploy2.outcome == 'failure'
-        uses: actions/deploy-pages@v4
-        continue-on-error: true
-
-      - name: Verify deployment served the new build
+      - name: Find expected asset
+        id: asset
         run: |
           asset=$(grep -oE 'assets/index-[A-Za-z0-9_-]+\.js' app/dist/index.html | head -1)
+          echo "path=$asset" >> "$GITHUB_OUTPUT"
           echo "Expecting live asset: $asset"
-          for attempt in $(seq 1 20); do
-            code=$(curl -s -o /dev/null -w '%{http_code}' "https://anatomyof.github.io/$asset")
-            echo "attempt $attempt: HTTP $code"
-            [ "$code" = "200" ] && echo "Live ✓" && exit 0
+
+      - name: Deploy — attempt 1
+        uses: actions/deploy-pages@v4
+        continue-on-error: true
+
+      - name: Check live — after 1
+        id: check1
+        run: |
+          for i in $(seq 1 9); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "https://anatomyof.github.io/${{ steps.asset.outputs.path }}")
+            echo "poll $i: HTTP $code"
+            [ "$code" = "200" ] && { echo "live=true" >> "$GITHUB_OUTPUT"; exit 0; }
+            sleep 10
+          done
+          echo "live=false" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy — attempt 2
+        if: steps.check1.outputs.live != 'true'
+        uses: actions/deploy-pages@v4
+        continue-on-error: true
+
+      - name: Check live — after 2
+        id: check2
+        if: steps.check1.outputs.live != 'true'
+        run: |
+          for i in $(seq 1 9); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "https://anatomyof.github.io/${{ steps.asset.outputs.path }}")
+            echo "poll $i: HTTP $code"
+            [ "$code" = "200" ] && { echo "live=true" >> "$GITHUB_OUTPUT"; exit 0; }
+            sleep 10
+          done
+          echo "live=false" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy — attempt 3
+        if: steps.check1.outputs.live != 'true' && steps.check2.outputs.live != 'true'
+        uses: actions/deploy-pages@v4
+        continue-on-error: true
+
+      - name: Verify the new build is served
+        run: |
+          for i in $(seq 1 18); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "https://anatomyof.github.io/${{ steps.asset.outputs.path }}")
+            echo "poll $i: HTTP $code"
+            [ "$code" = "200" ] && { echo "Live ✓"; exit 0; }
             sleep 15
           done
-          echo "::error::New build was not served at the origin after deploy — re-run this workflow."
+          echo "::error::New build was not served after 3 deploy attempts — re-run this workflow."
           exit 1
