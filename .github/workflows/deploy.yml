@@ -25,9 +25,13 @@ permissions:
   pages: write
   id-token: write
 
+# Queue runs, never cancel them. This workflow assumes the Pages backend is flaky
+# (hence the deploy/verify ladder below), so cancelling mid-run can leave an
+# artifact uploaded but never promoted, with nothing left running to report it.
+# A push-triggered build racing a manual one used to be dropped exactly that way.
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build-and-deploy:
@@ -37,13 +41,13 @@ jobs:
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - name: Checkout source app
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: LunarWerxs/anatomyof
           ref: main
 
       - name: Configure Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
@@ -59,7 +63,7 @@ jobs:
         run: bun run build
 
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: app/dist
 
@@ -78,7 +82,7 @@ jobs:
           echo "Expecting live asset: $asset"
 
       - name: Deploy — attempt 1
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
         continue-on-error: true
 
       - name: Check live — after 1
@@ -94,7 +98,7 @@ jobs:
 
       - name: Deploy — attempt 2
         if: steps.check1.outputs.live != 'true'
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
         continue-on-error: true
 
       - name: Check live — after 2
@@ -111,7 +115,7 @@ jobs:
 
       - name: Deploy — attempt 3
         if: steps.check1.outputs.live != 'true' && steps.check2.outputs.live != 'true'
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
         continue-on-error: true
 
       - name: Verify the new build is served
