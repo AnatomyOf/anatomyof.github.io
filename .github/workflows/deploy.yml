@@ -67,7 +67,7 @@ jobs:
         with:
           path: app/dist
 
-      # Each poll is || true because the step runs under ash -e: a curl that
+      # Each poll is || true because the step runs under bash -e: a curl that
       # exits non-zero (60 = TLS, 6 = DNS, 28 = timeout) would abort the step
       # outright instead of looping, turning a transient hiccup into a failed run
       # for a build that shipped fine. Seen for real on 2026-08-01, when the
