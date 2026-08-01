@@ -67,6 +67,12 @@ jobs:
         with:
           path: app/dist
 
+      # Each poll is || true because the step runs under ash -e: a curl that
+      # exits non-zero (60 = TLS, 6 = DNS, 28 = timeout) would abort the step
+      # outright instead of looping, turning a transient hiccup into a failed run
+      # for a build that shipped fine. Seen for real on 2026-08-01, when the
+      # move to the custom domain outran its certificate by a few minutes.
+      #
       # This org-root Pages backend fails ~half the time — sometimes loudly
       # ("Deployment failed, try again later"), and sometimes SILENTLY (the
       # deploy step reports success but never promotes the artifact). So we
@@ -89,7 +95,7 @@ jobs:
         id: check1
         run: |
           for i in $(seq 1 9); do
-            code=$(curl -s -o /dev/null -w '%{http_code}' "https://anatomyof.lunarwerx.com/${{ steps.asset.outputs.path }}")
+            code=$(curl -s -o /dev/null -w '%{http_code}' "https://anatomyof.lunarwerx.com/${{ steps.asset.outputs.path }}" || true)
             echo "poll $i: HTTP $code"
             [ "$code" = "200" ] && { echo "live=true" >> "$GITHUB_OUTPUT"; exit 0; }
             sleep 10
@@ -106,7 +112,7 @@ jobs:
         if: steps.check1.outputs.live != 'true'
         run: |
           for i in $(seq 1 9); do
-            code=$(curl -s -o /dev/null -w '%{http_code}' "https://anatomyof.lunarwerx.com/${{ steps.asset.outputs.path }}")
+            code=$(curl -s -o /dev/null -w '%{http_code}' "https://anatomyof.lunarwerx.com/${{ steps.asset.outputs.path }}" || true)
             echo "poll $i: HTTP $code"
             [ "$code" = "200" ] && { echo "live=true" >> "$GITHUB_OUTPUT"; exit 0; }
             sleep 10
@@ -121,7 +127,7 @@ jobs:
       - name: Verify the new build is served
         run: |
           for i in $(seq 1 18); do
-            code=$(curl -s -o /dev/null -w '%{http_code}' "https://anatomyof.lunarwerx.com/${{ steps.asset.outputs.path }}")
+            code=$(curl -s -o /dev/null -w '%{http_code}' "https://anatomyof.lunarwerx.com/${{ steps.asset.outputs.path }}" || true)
             echo "poll $i: HTTP $code"
             [ "$code" = "200" ] && { echo "Live ✓"; exit 0; }
             sleep 15
